@@ -9,6 +9,7 @@
 	<script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
 	<script async src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"
 		onload="onOpenCvReady();"></script>
+	<script src="students.js"></script>
 	<style>
 		/* カスタムスクロールバー */
 		#choices_container::-webkit-scrollbar {
@@ -257,16 +258,9 @@
 			updateProgress(0, 0, "Loading...");
 			showView('progress');
 
-			// GAS：選択肢用のリスト作成
-			Promise.all([
-				GAS_choiceList("HTML", "A1:A", "B1:B"),
-				GAS_choiceList("HTML", "C1:C", "D1:D"),
-				GAS_choiceList("HTML", "E1:E", "F1:F"),
-				GAS_choiceList("HTML", "G1:G", "H1:H")
-			]).then(([typeData, judgeData, STData, SPData]) => {
-				Object.assign(choiceData, { type: typeData, judge: judgeData, ST: STData, SP: SPData });
-				main(sortedFiles);
-			}).catch(error => console.error('データ取得エラー:', error));
+			// students.js のデータを直接使用
+			Object.assign(choiceData, { type: typeData, judge: judgeData, ST: STData, SP: SPData });
+			main(sortedFiles);
 		}
 
 		// 非同期キュー：Producer（判定）とConsumer（UI入力）を繋ぐ
@@ -422,12 +416,6 @@
 			showResult(results.join('\n'));
 		}
 
-		// GAS：選択肢用のリスト作成
-		function GAS_choiceList(sheetName, rangeA, rangeB) {
-			return new Promise((resolve, reject) => {
-				google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).choiceList(sheetName, rangeA, rangeB);
-			});
-		}
 
 		// GAS：シートに転記
 		function GAS_outputResult(text) {
