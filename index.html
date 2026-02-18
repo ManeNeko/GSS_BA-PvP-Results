@@ -7,8 +7,12 @@
 	<title>リザルト画像判定</title>
 	<script src="https://cdn.tailwindcss.com"></script>
 	<script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
-	<script async src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"
-		onload="onOpenCvReady();"></script>
+	<script>
+		window.onOpenCvReady = function () {
+			console.log('OpenCV.js is ready.');
+			if (window._cvReadyResolve) window._cvReadyResolve(true);
+		};
+	</script>
 	<script src="students.js"></script>
 	<style>
 		/* カスタムスクロールバー */
@@ -224,10 +228,7 @@
 
 		// OpenCV.jsの読み込み完了を待機するPromise
 		let cvReady = new Promise(resolve => {
-			window.onOpenCvReady = () => {
-				console.log('OpenCV.js is ready.');
-				resolve(true);
-			}
+			window._cvReadyResolve = resolve;
 		});
 
 		// 画面切り替え関数
