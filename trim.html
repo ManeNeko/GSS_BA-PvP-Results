@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>トリミング範囲設定ツール</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+	<style>
+		#image-container-wrapper::-webkit-scrollbar {
+			width: 10px;
+			height: 10px;
+		}
+
+		#image-container-wrapper::-webkit-scrollbar-track {
+			background: #f1f1f1;
+		}
+
+		#image-container-wrapper::-webkit-scrollbar-thumb {
+			background: #ccc;
+			border-radius: 4px;
+		}
+
+		#image-container-wrapper::-webkit-scrollbar-thumb:hover {
+			background: #bbb;
+		}
+
+		#image-container {
+			position: relative;
+			width: fit-content;
+			height: fit-content;
+		}
+
+		#uploaded-image {
+			display: block;
+			user-select: none;
+			-webkit-user-drag: none;
+		}
+
+		.coord-box {
+			position: absolute;
+			border: 1.5px solid rgba(59, 130, 246, 0.7);
+			background-color: rgba(59, 130, 246, 0.1);
+			cursor: grab;
+			box-sizing: border-box;
+			user-select: none;
+		}
+
+		.coord-box:hover {
+			background-color: rgba(59, 130, 246, 0.2);
+		}
+
+		.coord-box.dragging,
+		.coord-box.resizing {
+			cursor: grabbing;
+			background-color: rgba(59, 130, 246, 0.3);
+		}
+
+		.resize-handle {
+			position: absolute;
+			width: 10px;
+			height: 10px;
+			background-color: rgba(59, 130, 246, 0.8);
+			border: 1.5px solid white;
+			border-radius: 50%;
+			box-shadow: 0 0 3px rgba(0, 0, 0, 0.2);
+		}
+
+		.resize-handle.tl {
+			top: -6px;
+			left: -6px;
+			cursor: nwse-resize;
+		}
+
+		.resize-handle.t {
+			top: -6px;
+			left: 50%;
+			transform: translateX(-50%);
+			cursor: ns-resize;
+		}
+
+		.resize-handle.tr {
+			top: -6px;
+			right: -6px;
+			cursor: nesw-resize;
+		}
+
+		.resize-handle.l {
+			top: 50%;
+			left: -6px;
+			transform: translateY(-50%);
+			cursor: ew-resize;
+		}
+
+		.resize-handle.r {
+			top: 50%;
+			right: -6px;
+			transform: translateY(-50%);
+			cursor: ew-resize;
+		}
+
+		.resize-handle.bl {
+			bottom: -6px;
+			left: -6px;
+			cursor: nesw-resize;
+		}
+
+		.resize-handle.b {
+			bottom: -6px;
+			left: 50%;
+			transform: translateX(-50%);
+			cursor: ns-resize;
+		}
+
+		.resize-handle.br {
+			bottom: -6px;
+			right: -6px;
+			cursor: nwse-resize;
+		}
+	</style>
+</head>
+
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+	<div class="mx-auto p-8 max-w-7xl w-full">
+		<div class="bg-white rounded-lg shadow-2xl flex flex-col" style="height: 90vh;">
+
+			<div class="flex-shrink-0 border-b border-gray-200 p-4">
+				<div class="flex justify-between items-end gap-4">
+					<div class="flex-grow">
+						<input type="file" id="image-upload" accept="image/*"
+							class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none">
+					</div>
+					<div class="flex-shrink-0">
+						<button id="save-button"
+							class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-300"
+							disabled>
+							保存
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<div id="image-container-wrapper"
+				class="flex-grow w-full p-6 overflow-auto flex justify-center items-center bg-gray-100">
+				<div id="image-container">
+					<img id="uploaded-image" src="#" alt="アップロードされた画像" class="hidden shadow-lg">
+					<div id="box-overlay"></div>
+					<span id="image-placeholder" class="text-gray-500">ここに画像が表示されます</span>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		const LINKED_BOX_START_INDEX = 3;
+		const LINKED_BOX_END_INDEX = 14;
+		let positions = [
+			[0.045, 0.260, 0.085, 0.330], [0.818, 0.238, 0.970, 0.270], [0.090, 0.260, 0.185, 0.330],
+			[0.087, 0.742, 0.118, 0.801], [0.146, 0.742, 0.177, 0.801], [0.204, 0.742, 0.235, 0.801],
+			[0.263, 0.742, 0.294, 0.801], [0.323, 0.742, 0.354, 0.801], [0.380, 0.742, 0.411, 0.801],
+			[0.585, 0.742, 0.616, 0.801], [0.642, 0.742, 0.673, 0.801], [0.701, 0.742, 0.732, 0.801],
+			[0.760, 0.742, 0.791, 0.801], [0.819, 0.742, 0.850, 0.801], [0.878, 0.742, 0.909, 0.801]
+		];
+
+		const imageUpload = document.getElementById('image-upload');
+		const uploadedImage = document.getElementById('uploaded-image');
+		const imageContainer = document.getElementById('image-container');
+		const boxOverlay = document.getElementById('box-overlay');
+		const saveButton = document.getElementById('save-button');
+		const imagePlaceholder = document.getElementById('image-placeholder');
+
+		let imageWidth = 0, imageHeight = 0, displayScale = 1;
+		let activeBox = null, isDragging = false, isResizing = false;
+		let dragStartX, dragStartY, resizeHandleType;
+		let initialPositions = [];
+		let history = [];
+		let historyIndex = -1;
+
+		const box_title = ["攻守", "対戦相手", "勝敗", "A1", "A2", "A3", "A4", "SP1", "SP2", "D1", "D2", "D3", "D4", "SP3", "SP4"];
+		const ref_test = ["type", null, "judge", "ST", "ST", "ST", "ST", "SP", "SP", "ST", "ST", "ST", "ST", "SP", "SP"];
+		const dbName = 'BA_PvP', storeName = 'trim_list', dbVersion = 1;
+
+		async function openTrimDB() {
+			return await idb.openDB(dbName, dbVersion, {
+				upgrade(db) {
+					if (!db.objectStoreNames.contains(storeName)) {
+						db.createObjectStore(storeName);
+					}
+					if (!db.objectStoreNames.contains('img_result')) {
+						const store = db.createObjectStore('img_result', { keyPath: 'id', autoIncrement: true });
+						store.createIndex('name', 'name', { unique: true });
+					}
+				}
+			});
+		}
+
+		// --- History Management ---
+		function saveState() {
+			history = history.slice(0, historyIndex + 1);
+			history.push(JSON.parse(JSON.stringify(positions)));
+			historyIndex++;
+		}
+
+		function undo() {
+			if (historyIndex > 0) {
+				historyIndex--;
+				positions = JSON.parse(JSON.stringify(history[historyIndex]));
+				updateAllBoxesStyle();
+			}
+		}
+
+		function redo() {
+			if (historyIndex < history.length - 1) {
+				historyIndex++;
+				positions = JSON.parse(JSON.stringify(history[historyIndex]));
+				updateAllBoxesStyle();
+			}
+		}
+
+		document.addEventListener('keydown', (e) => {
+			if (e.ctrlKey && e.key === 'z') {
+				e.preventDefault();
+				undo();
+			} else if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+				e.preventDefault();
+				redo();
+			}
+		});
+
+		// --- Event Listeners & UI ---
+		imageUpload.addEventListener('change', (event) => {
+			const file = event.target.files[0];
+			if (!file) { resetUI(); return; }
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				uploadedImage.src = e.target.result;
+				uploadedImage.classList.remove('hidden');
+				imagePlaceholder.classList.add('hidden');
+				uploadedImage.onload = () => {
+					imageWidth = uploadedImage.naturalWidth;
+					imageHeight = uploadedImage.naturalHeight;
+					updateDisplayScale();
+					initializeUI();
+					saveButton.disabled = false;
+					// Reset history for new image
+					history = [];
+					historyIndex = -1;
+					saveState();
+				};
+				uploadedImage.onerror = () => { alert("画像の読み込みに失敗しました。"); resetUI(); };
+			}
+			reader.readAsDataURL(file);
+		});
+
+		window.addEventListener('resize', () => {
+			if (imageWidth > 0) {
+				updateDisplayScale();
+				updateAllBoxesStyle();
+			}
+		});
+
+		saveButton.addEventListener('click', async () => {
+			const config = {
+				positions: positions,
+				box_title: box_title,
+				ref_test: ref_test,
+			};
+
+			try {
+				const db = await openTrimDB();
+				await db.put(storeName, config, 'trim_config');
+				alert('設定を保存しました！');
+			} catch (error) {
+				console.error('Failed to save settings:', error);
+				alert('設定の保存中にエラーが発生しました。');
+			}
+		});
+
+		function resetUI() {
+			uploadedImage.src = "#";
+			uploadedImage.classList.add('hidden');
+			imagePlaceholder.classList.remove('hidden');
+			boxOverlay.innerHTML = '';
+			saveButton.disabled = true;
+			imageWidth = 0; imageHeight = 0; displayScale = 1;
+			history = []; historyIndex = -1;
+		}
+
+		function initializeUI() {
+			boxOverlay.innerHTML = '';
+			updateAllBoxesStyle();
+		}
+
+		function updateDisplayScale() {
+			if (imageWidth > 0) {
+				displayScale = uploadedImage.offsetWidth / imageWidth;
+			}
+		}
+
+		function updateAllBoxesStyle() {
+			if (!boxOverlay || !imageWidth) return;
+			boxOverlay.innerHTML = '';
+			positions.forEach((pos, index) => {
+				const box = document.createElement('div');
+				box.className = 'coord-box';
+				box.dataset.index = index;
+				box.addEventListener('mousedown', startDrag);
+
+				['tl', 't', 'tr', 'l', 'r', 'bl', 'b', 'br'].forEach(type => {
+					const handle = document.createElement('div');
+					handle.className = `resize-handle ${type}`;
+					handle.dataset.type = type;
+					handle.addEventListener('mousedown', startResize);
+					box.appendChild(handle);
+				});
+
+				updateBoxStyle(box, pos);
+				boxOverlay.appendChild(box);
+			});
+		}
+
+		function updateBoxStyle(boxElement, positionData) {
+			if (!imageWidth || !imageHeight) return;
+			const [l, t, r, b] = positionData.map(p => parseFloat(p));
+			boxElement.style.left = `${l * imageWidth * displayScale}px`;
+			boxElement.style.top = `${t * imageHeight * displayScale}px`;
+			boxElement.style.width = `${(r - l) * imageWidth * displayScale}px`;
+			boxElement.style.height = `${(b - t) * imageHeight * displayScale}px`;
+		}
+
+		function startDrag(event) {
+			if (event.button !== 0 || isResizing) return;
+			event.stopPropagation();
+			isDragging = true;
+			activeBox = event.currentTarget;
+			activeBox.classList.add('dragging');
+			activeBox.style.zIndex = 10;
+
+			initialPositions = JSON.parse(JSON.stringify(positions));
+
+			dragStartX = event.clientX;
+			dragStartY = event.clientY;
+
+			document.addEventListener('mousemove', drag);
+			document.addEventListener('mouseup', stopDrag);
+		}
+
+		function drag(event) {
+			if (!isDragging || !activeBox) return;
+			event.preventDefault();
+			const dx = (event.clientX - dragStartX) / (imageWidth * displayScale);
+			const dy = (event.clientY - dragStartY) / (imageHeight * displayScale);
+			const index = parseInt(activeBox.dataset.index);
+			const isLinked = index >= LINKED_BOX_START_INDEX && index <= LINKED_BOX_END_INDEX;
+
+			if (isLinked) {
+				for (let i = LINKED_BOX_START_INDEX; i <= LINKED_BOX_END_INDEX; i++) {
+					const initialPos = initialPositions[i];
+					if (i === index) {
+						positions[i] = [initialPos[0] + dx, initialPos[1] + dy, initialPos[2] + dx, initialPos[3] + dy];
+					} else {
+						positions[i][1] = initialPos[1] + dy;
+						positions[i][3] = initialPos[3] + dy;
+					}
+				}
+			} else {
+				const initialPos = initialPositions[index];
+				positions[index] = [initialPos[0] + dx, initialPos[1] + dy, initialPos[2] + dx, initialPos[3] + dy];
+			}
+			updateAllBoxesStyle();
+		}
+
+		function stopDrag() {
+			if (!isDragging) return;
+			isDragging = false;
+			if (activeBox) {
+				activeBox.classList.remove('dragging');
+				activeBox.style.zIndex = '';
+				activeBox = null;
+			}
+			document.removeEventListener('mousemove', drag);
+			document.removeEventListener('mouseup', stopDrag);
+			saveState();
+		}
+
+		function startResize(event) {
+			if (event.button !== 0) return;
+			event.stopPropagation();
+			isResizing = true;
+			activeBox = event.target.parentElement;
+			activeBox.classList.add('resizing');
+			activeBox.style.zIndex = 20;
+
+			resizeHandleType = event.target.dataset.type;
+			initialPositions = JSON.parse(JSON.stringify(positions));
+
+			dragStartX = event.clientX;
+			dragStartY = event.clientY;
+
+			document.addEventListener('mousemove', resizeDrag);
+			document.addEventListener('mouseup', stopResize);
+		}
+
+		function resizeDrag(event) {
+			if (!isResizing || !activeBox) return;
+			event.preventDefault();
+			const dx = (event.clientX - dragStartX) / (imageWidth * displayScale);
+			const dy = (event.clientY - dragStartY) / (imageHeight * displayScale);
+			const index = parseInt(activeBox.dataset.index);
+			const isLinked = index >= LINKED_BOX_START_INDEX && index <= LINKED_BOX_END_INDEX;
+			const initialPos = initialPositions[index];
+			let [l, t, r, b] = initialPos;
+
+			if (resizeHandleType.includes('l')) l += dx;
+			if (resizeHandleType.includes('r')) r += dx;
+			if (resizeHandleType.includes('t')) t += dy;
+			if (resizeHandleType.includes('b')) b += dy;
+
+			if (isLinked) {
+				const newWidth = r - l;
+				const newHeight = b - t;
+				for (let i = LINKED_BOX_START_INDEX; i <= LINKED_BOX_END_INDEX; i++) {
+					const linkedInitialPos = initialPositions[i];
+					positions[i][1] = linkedInitialPos[1] + (t - initialPos[1]);
+					positions[i][3] = positions[i][1] + newHeight;
+					positions[i][2] = positions[i][0] + newWidth;
+				}
+			} else {
+				positions[index] = [l, t, r, b];
+			}
+			updateAllBoxesStyle();
+		}
+
+		function stopResize() {
+			if (!isResizing) return;
+			isResizing = false;
+			if (activeBox) {
+				activeBox.classList.remove('resizing');
+				activeBox.style.zIndex = '';
+				activeBox = null;
+			}
+			document.removeEventListener('mousemove', resizeDrag);
+			document.removeEventListener('mouseup', stopResize);
+			saveState();
+		}
+
+		(async () => {
+			try {
+				const db = await openTrimDB();
+				const savedConfig = await db.get(storeName, 'trim_config');
+				if (savedConfig && savedConfig.positions) {
+					positions = savedConfig.positions;
+					console.log('Loaded positions from DB.');
+				}
+			} catch (error) {
+				console.error('Failed to load settings from DB:', error);
+			}
+		})();
+
+	</script>
+</body>
+
+</html>

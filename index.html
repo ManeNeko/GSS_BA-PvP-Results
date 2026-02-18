@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>リザルト画像判定</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+	<script async src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js"
+		onload="onOpenCvReady();"></script>
+	<style>
+		/* カスタムスクロールバー */
+		#choices_container::-webkit-scrollbar {
+			width: 10px;
+		}
+
+		#choices_container::-webkit-scrollbar-track {
+			background: #f1f1f1;
+		}
+
+		#choices_container::-webkit-scrollbar-thumb {
+			background: #ccc;
+			border-radius: 4px;
+		}
+
+		#choices_container::-webkit-scrollbar-thumb:hover {
+			background: #bbb;
+		}
+
+		input:focus,
+		textarea:focus {
+			outline: none;
+		}
+
+		#area_main>div {
+			display: none;
+		}
+
+		/* デフォルトは全て非表示 */
+		#area_main[data-view="upload"] #upload_area,
+		#area_main[data-view="progress"] #progress-area,
+		#area_main[data-view="input"] #preview-area,
+		#area_main[data-view="input"] #choices_container,
+		#area_main[data-view="result"] #result_area {
+			display: block;
+		}
+
+		#area_main {
+			display: flex;
+			flex-direction: column;
+		}
+
+		#area_main[data-view="upload"] #upload_area {
+			display: flex;
+			height: 100%;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			cursor: pointer;
+			border-bottom-width: 0;
+		}
+
+		#area_main[data-view="result"] #result_area {
+			display: flex;
+			flex-direction: column;
+			height: 100%;
+		}
+
+		#area_main[data-view="result"] #result_text {
+			flex-grow: 1;
+		}
+
+		.choice-grid {
+			display: grid;
+			gap: 1rem;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+		}
+
+		@media (min-width: 640px) {
+			.choice-grid {
+				grid-template-columns: repeat(6, minmax(0, 1fr));
+			}
+		}
+
+		@media (min-width: 1024px) {
+			.choice-grid {
+				grid-template-columns: repeat(8, minmax(0, 1fr));
+			}
+		}
+
+		/* 選択肢ボタンのデザイン */
+		.choice-button {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: flex-start;
+			padding: 0.5rem;
+			border-width: 1px;
+			border-color: #e5e7eb;
+			border-radius: 0.5rem;
+			height: 7rem;
+			transition: all 0.2s ease-in-out;
+		}
+
+		.choice-button:hover {
+			background-color: #f3f4f6;
+			border-color: #3b82f6;
+		}
+
+		.choice-icon {
+			width: 3rem;
+			height: 3rem;
+			object-fit: contain;
+			margin-bottom: 0.5rem;
+		}
+
+		.choice-text {
+			font-size: 0.75rem;
+			line-height: 1rem;
+			text-align: center;
+			word-break: break-all;
+		}
+	</style>
+</head>
+
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+	<div class="mx-auto p-8 max-w-4xl w-full">
+		<div id="area_main" class="bg-white rounded-lg shadow-2xl" style="height: 90vh;" data-view="upload">
+
+			<div id="upload_area" class="p-8 text-center transition-colors duration-300 border-b border-gray-200">
+				<input type="file" id="upload_imgInput" multiple accept="image/*" class="hidden">
+				<div class="text-gray-500 pointer-events-none">
+					<svg class="mx-auto h-24 w-24 text-gray-300" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+						<path
+							d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8"
+							stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
+					<h3 class="mt-2 text-lg font-medium text-gray-700">画像ファイルをアップロード</h3>
+					<p class="mt-1 text-sm text-gray-500">クリック または ドラッグ＆ドロップ</p>
+				</div>
+			</div>
+
+			<div id="progress-area" class="p-6 border-b border-gray-200">
+				<div id="progress-text" class="text-center text-gray-600 mb-2"></div>
+				<div id="progress-bar" class="w-full bg-gray-200 rounded-full h-2.5">
+					<div id="progress-fill"
+						class="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-in-out"
+						style="width: 0%"></div>
+				</div>
+			</div>
+
+			<div id="preview-area" class="p-6 border-b border-gray-200 relative">
+				<span id="preview_progress" class="absolute top-2 left-4 text-xs text-gray-400"></span>
+				<button type="button" id="skip_button" title="誤った画像をアップした際、押してください。&#10;親画像がアップされなかったものとして処理されます。"
+					class="absolute top-2 right-2 px-3 py-1 text-xs font-medium text-gray-600 border border-gray-600 rounded hover:bg-gray-50">スキップ</button>
+				<img id="preview_img" class="max-h-48 w-auto mx-auto rounded-lg shadow-md mb-4">
+				<div class="flex gap-3">
+					<input type="text" id="preview_input"
+						class="flex-grow h-8 px-2 text-sm border-2 border-gray-300 rounded-lg"
+						placeholder="画像名を入力してください">
+					<button type="button" id="preview_button"
+						class="h-8 px-4 text-sm bg-blue-500 text-white font-bold rounded-lg">保存</button>
+				</div>
+			</div>
+
+			<div id="choices_container" class="p-6 flex-grow overflow-y-auto"></div>
+
+			<div id="result_area" class="p-6 bg-gray-50 rounded-lg">
+				<div class="flex justify-between items-center mb-4">
+					<h2 class="text-xl font-bold">判定結果</h2>
+					<div>
+						<button id="result_button"
+							class="bg-gray-800 text-white font-bold py-2 px-4 rounded-lg">コピー</button>
+						<button id="next-task-button"
+							class="ml-2 bg-blue-500 text-white font-bold py-2 px-4 rounded-lg">転記</button>
+					</div>
+				</div>
+				<textarea id="result_text" readonly
+					class="w-full p-3 font-mono text-sm bg-gray-200 border border-gray-300 rounded-lg"></textarea>
+			</div>
+		</div>
+	</div>
+
+	<template id="choices-button-template">
+		<button class="choice-button">
+			<img class="choice-icon" src="">
+			<span class="choice-text"></span>
+		</button>
+	</template>
+
+	<script>
+		// 変数定義とDOM要素の取得
+		const progressSection = document.getElementById('progress-area');
+		const previewSection = document.getElementById('preview-area');
+		const resultsContainer = document.getElementById('result_area');
+		const mainCard = document.getElementById('area_main');
+		const imageInput = document.getElementById('upload_imgInput');
+		const uploadSection = document.getElementById('upload_area');
+		const progressText = document.getElementById('progress-text');
+		const progressFill = document.getElementById('progress-fill');
+		const previewImage = document.getElementById('preview_img');
+		const previewInput = document.getElementById('preview_input');
+		const saveButton = document.getElementById('preview_button');
+		const skipButton = document.getElementById('skip_button');
+		const choicesContainer = document.getElementById('choices_container');
+		const copyButton = document.getElementById('result_button');
+		const newTaskButton = document.getElementById('next-task-button');
+		const textarea = document.getElementById('result_text');
+		const choiceButtonTemplate = document.getElementById('choices-button-template');
+		const previewProgress = document.getElementById('preview_progress');
+
+		const THRESHOLD = 0.95; // テンプレートマッチングの類似度しきい値
+		const MAX_QUEUE_SIZE = 1000; // キューの最大量
+
+		// 選択肢データ
+		const choiceData = {};
+
+		// IndexedDBの設定
+		const dbVersion = 1;
+		const dbName = 'BA_PvP';
+		const storeName = 'img_result';
+
+		// OpenCV.jsの読み込み完了を待機するPromise
+		let cvReady = new Promise(resolve => {
+			window.onOpenCvReady = () => {
+				console.log('OpenCV.js is ready.');
+				resolve(true);
+			}
+		});
+
+		// 画面切り替え関数
+		function showView(viewName) {
+			mainCard.dataset.view = viewName;
+		}
+
+		// イベントリスナー設定
+		uploadSection.addEventListener('click', () => imageInput.click()); // クリックでファイル選択
+		imageInput.addEventListener('change', (event) => handleFiles(event.target.files)); // ファイル選択時の処理
+
+		// ドラッグ＆ドロップ対応
+		uploadSection.addEventListener('dragover', (e) => { e.preventDefault(); uploadSection.classList.add('bg-blue-50'); });
+		uploadSection.addEventListener('dragleave', (e) => { e.preventDefault(); uploadSection.classList.remove('bg-blue-50'); });
+		uploadSection.addEventListener('drop', (e) => {
+			e.preventDefault();
+			uploadSection.classList.remove('bg-blue-50');
+			handleFiles(e.dataTransfer.files);
+		});
+
+		showView('upload'); // 初期表示
+
+		// ファイル選択後の処理：選択肢作成→メイン起動
+		function handleFiles(files) {
+			if (!files || files.length === 0) return;
+			const sortedFiles = Array.from(files).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })); // ファイル名順（数値考慮）でソート
+
+			updateProgress(0, 0, "Loading...");
+			showView('progress');
+
+			// GAS：選択肢用のリスト作成
+			Promise.all([
+				GAS_choiceList("HTML", "A1:A", "B1:B"),
+				GAS_choiceList("HTML", "C1:C", "D1:D"),
+				GAS_choiceList("HTML", "E1:E", "F1:F"),
+				GAS_choiceList("HTML", "G1:G", "H1:H")
+			]).then(([typeData, judgeData, STData, SPData]) => {
+				Object.assign(choiceData, { type: typeData, judge: judgeData, ST: STData, SP: SPData });
+				main(sortedFiles);
+			}).catch(error => console.error('データ取得エラー:', error));
+		}
+
+		// 非同期キュー：Producer（判定）とConsumer（UI入力）を繋ぐ
+		class InputQueue {
+			constructor(maxSize = Infinity) {
+				this.items = [];
+				this.maxSize = maxSize;
+				this._waitForSpace = null; // Producer待機用
+				this._waitForItem = null;  // Consumer待機用
+				this._finished = false;
+			}
+			// Producer → キューに追加（満杯なら待機）
+			async enqueue(item) {
+				while (this.items.length >= this.maxSize) {
+					await new Promise(r => this._waitForSpace = r);
+				}
+				this.items.push(item);
+				if (this._waitForItem) { this._waitForItem(); this._waitForItem = null; }
+			}
+			// Consumer → キューから取得（空なら待機、終了ならnull）
+			async dequeue() {
+				while (this.items.length === 0) {
+					if (this._finished) return null;
+					await new Promise(r => this._waitForItem = r);
+				}
+				const item = this.items.shift();
+				if (this._waitForSpace) { this._waitForSpace(); this._waitForSpace = null; }
+				return item;
+			}
+			// Producerの全投入が完了
+			finish() {
+				this._finished = true;
+				if (this._waitForItem) { this._waitForItem(); this._waitForItem = null; }
+			}
+		}
+
+		// 画像1枚分の結果管理
+		class ImageResult {
+			constructor(time) {
+				this.names = [time];
+				this.skipped = false;
+				this.pendingCount = 0;
+				this._resolve = null;
+				this.done = new Promise(r => this._resolve = r);
+			}
+			addMatch(name) { this.names.push(name); }
+			addPending() { this.names.push(null); this.pendingCount++; return this.names.length - 1; }
+			resolvePending(slotIndex, name) {
+				this.names[slotIndex] = name;
+				if (--this.pendingCount === 0) this._resolve();
+			}
+			skip() { this.skipped = true; this._resolve(); }
+			checkDone() { if (this.pendingCount === 0) this._resolve(); }
+			toString() { return this.names.join('\t'); }
+		}
+
+		// Consumer：キューから1件ずつ取り出し → UI入力 → 保存
+		async function runConsumer(queue, db, cache, progressState) {
+			while (true) {
+				const item = await queue.dequeue();
+				if (item === null) break; // Producer完了 & キュー空
+
+				// スキップ済みの画像は自動スキップ
+				if (item.imgResult.skipped) {
+					progressState.processedCount++;
+					updateProgress(progressState.processedCount, progressState.totalCount);
+					continue;
+				}
+
+				// 再判定：前のアイテムで登録済みならUI不要
+				const [reMatch, reName] = await templatematch(item.cropImg, cache);
+				if (reMatch) {
+					item.imgResult.resolvePending(item.slotIndex, reName.split('_')[0]);
+				} else {
+					const student = await showChoices(item.cropImg, db, item.refKey);
+
+					if (student === "SKIP") {
+						item.imgResult.skip();
+					} else {
+						await saveImg(item.cropImg, student, db, cache);
+						item.imgResult.resolvePending(item.slotIndex, student.split('_')[0]);
+					}
+				}
+				progressState.processedCount++;
+				updateProgress(progressState.processedCount, progressState.totalCount);
+			}
+		}
+
+		// メイン：Producer（判定）→ キュー → Consumer（UI入力）
+		async function main(files) {
+			// 準備
+			await cvReady; // OpenCV
+			const db = await openAppDB(); // IndexedDB
+			const trimConfig = await db.get('trim_list', 'trim_config'); // トリミング範囲
+			if (!trimConfig) {
+				alert('トリミング設定が見つかりません。');
+				showView('upload'); return;
+			}
+
+			// キャッシュ初期化
+			const cache = new MatchCache();
+			await cache.loadAll(db);
+
+			const queue = new InputQueue(MAX_QUEUE_SIZE);
+			const imageResults = []; // 画像ごとの結果管理
+			const progressState = {
+				totalCount: files.length * trimConfig.positions.length,
+				processedCount: 0,
+				time: new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+					.replace(/(\d+)\/(\d+)\/(\d+), (\d+:\d+:\d+)/, '$1/$2/$3 $4'),
+			};
+
+			// Consumer開始（バックグラウンドで並行実行）
+			const consumerPromise = runConsumer(queue, db, cache, progressState);
+
+			// Producer：全画像を順次 crop→match
+			for (const file of files) {
+				const imgResult = new ImageResult(progressState.time);
+				imageResults.push(imgResult);
+
+				for (const [index, position] of trimConfig.positions.entries()) {
+					// UIスレッドをブロックしないように一瞬待機
+					await new Promise(r => setTimeout(r, 0));
+
+					const cropImg = await trimImage(file, position); // トリミング
+					const [isMatch, student] = await templatematch(cropImg, cache); // 検索
+
+					if (isMatch) {
+						imgResult.addMatch(student.split('_')[0]); // 即座に結果記録
+						progressState.processedCount++;
+						updateProgress(progressState.processedCount, progressState.totalCount);
+					} else {
+						const refKey = trimConfig.ref_test[index];
+						const slotIndex = imgResult.addPending(); // プレースホルダー確保
+						await queue.enqueue({ cropImg, refKey, imgResult, slotIndex }); // キューに投入
+					}
+				}
+				imgResult.checkDone(); // 全マッチ済みなら即完了
+			}
+
+			// Producer完了を通知
+			queue.finish();
+
+			// Consumer＆全画像の完了を待機
+			await consumerPromise;
+			await Promise.all(imageResults.map(r => r.done));
+
+			// キャッシュ解放
+			cache.dispose();
+
+			// 結果を表示（スキップ画像を除外）
+			const results = imageResults.filter(r => !r.skipped).map(r => r.toString());
+			showResult(results.join('\n'));
+		}
+
+		// GAS：選択肢用のリスト作成
+		function GAS_choiceList(sheetName, rangeA, rangeB) {
+			return new Promise((resolve, reject) => {
+				google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).choiceList(sheetName, rangeA, rangeB);
+			});
+		}
+
+		// GAS：シートに転記
+		function GAS_outputResult(text) {
+			newTaskButton.textContent = '実行中'; newTaskButton.disabled = true;
+			google.script.run.withSuccessHandler(() => google.script.host.close()).outputResult(text);
+		}
+
+		// 進捗バーの更新
+		function updateProgress(current, total, text = false) {
+			if (text) progressText.textContent = text;
+			else {
+				const percent = total > 0 ? (current / total) * 100 : 0;
+				const label = `${current} / ${total} (${percent.toFixed(1)}%)`;
+				progressText.textContent = label;
+				progressFill.style.width = `${percent}%`;
+				previewProgress.textContent = label;
+			}
+		}
+
+		// リザルト画面：結果の表示、各種ボタンの処理
+		let resultAbort = null;
+		function showResult(text) {
+			if (resultAbort) resultAbort.abort();
+			resultAbort = new AbortController();
+			const { signal } = resultAbort;
+
+			showView('result');
+			textarea.value = text;
+			// クリップボードにコピー
+			copyButton.addEventListener('click', () => {
+				navigator.clipboard.writeText(text).then(() => {
+					copyButton.textContent = 'OK!'; copyButton.disabled = true;
+					setTimeout(() => { copyButton.textContent = 'コピー'; copyButton.disabled = false; }, 1500);
+				});
+			}, { signal });
+			// 転記実行
+			newTaskButton.addEventListener('click', () => GAS_outputResult(text), { signal });
+		}
+
+		// 登録画面処理：プレビュー表示、入力バー処理、アシストボタン処理
+		function showChoices(blob, db, refKey) {
+			return new Promise(resolve => {
+				const ac = new AbortController();
+				const { signal } = ac;
+
+				showView('input');
+				// 初期化
+				choicesContainer.innerHTML = ''; // 以前のボタンをクリア
+				previewImage.src = URL.createObjectURL(blob); // プレビュー表示
+				previewInput.value = ''; // 入力欄をクリア
+
+				// 後片付け＆resolve
+				const done = (value) => { ac.abort(); showView('progress'); resolve(value); };
+
+				// 入力確定処理
+				const handleInput = () => {
+					const inputValue = previewInput.value.trim();
+					if (!inputValue) { alert("画像名を入力してください"); return; }
+					done(inputValue);
+				};
+
+				// 選択肢リストの取得
+				const choices = choiceData[refKey] || [];
+
+				// 選択肢ボタンの作成
+				if (choices.length > 0) {
+					const grid = document.createElement('div');
+					grid.className = 'choice-grid';
+					choices.forEach(choice => {
+						const clone = choiceButtonTemplate.content.cloneNode(true);
+						const icon = clone.querySelector('.choice-icon');
+
+						choice.link ? icon.src = choice.link : icon.style.display = 'none';
+						clone.querySelector('.choice-text').textContent = choice.name;
+						clone.querySelector('.choice-button').addEventListener('click', (e) => {
+							e.preventDefault(); previewInput.value = choice.name; handleInput();
+						}, { signal });
+						grid.appendChild(clone);
+					});
+					choicesContainer.appendChild(grid);
+				}
+				previewInput.focus();
+				saveButton.addEventListener('click', handleInput, { signal });
+				skipButton.addEventListener('click', () => done("SKIP"), { signal });
+				previewInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleInput(); } }, { signal });
+			});
+		}
+
+		// idbの初期化
+		async function openAppDB() {
+			return await idb.openDB(dbName, dbVersion, {
+				upgrade(db) {
+					if (!db.objectStoreNames.contains(storeName)) {
+						const store = db.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+						store.createIndex('name', 'name', { unique: true });
+					}
+					if (!db.objectStoreNames.contains('trim_list')) db.createObjectStore('trim_list');
+				}
+			});
+		}
+
+		// テンプレートマッチング用キャッシュ
+		class MatchCache {
+			constructor() { this.entries = []; } // { name, mat, key("cols_rows") }
+
+			// DB全画像を一括キャッシュ
+			async loadAll(db) {
+				const items = await db.getAll(storeName);
+				for (const item of items) {
+					const mat = await blobToCvMat(item.image);
+					this.entries.push({ name: item.name, mat, key: `${mat.cols}_${mat.rows}` });
+				}
+			}
+			// 新規画像をキャッシュに追加
+			async add(blob, name) {
+				const mat = await blobToCvMat(blob);
+				this.entries.push({ name, mat, key: `${mat.cols}_${mat.rows}` });
+			}
+			// 入力画像と比較（同サイズのみ）
+			match(inputMat) {
+				const inputKey = `${inputMat.cols}_${inputMat.rows}`;
+				const result = new cv.Mat();
+				for (const entry of this.entries) {
+					if (entry.key !== inputKey) continue;
+					cv.matchTemplate(inputMat, entry.mat, result, cv.TM_CCOEFF_NORMED);
+					const { maxVal } = cv.minMaxLoc(result);
+					if (maxVal >= THRESHOLD) { result.delete(); return [true, entry.name]; }
+				}
+				result.delete();
+				return [false, ""];
+			}
+			// メモリ解放
+			dispose() { this.entries.forEach(e => e.mat.delete()); this.entries = []; }
+		}
+
+		// Blob画像をOpenCVのMat形式に変換
+		async function blobToCvMat(blob) {
+			const img = await createImageBitmap(blob);
+			const canvas = document.createElement('canvas');
+			canvas.width = img.width; canvas.height = img.height;
+			canvas.getContext('2d').drawImage(img, 0, 0);
+			return cv.imread(canvas);
+		}
+
+		// 画像比較（キャッシュ利用）
+		async function templatematch(imgBlob, cache) {
+			const inputMat = await blobToCvMat(imgBlob);
+			const result = cache.match(inputMat);
+			inputMat.delete();
+			return result;
+		}
+
+		// idb内に画像保存 + キャッシュ追加
+		async function saveImg(blob, baseName, db, cache) {
+			let student = baseName;
+			const existing = await db.getFromIndex(storeName, 'name', student);
+			if (existing) { student = `${student}_${new Date().getTime()}`; }
+			await db.add(storeName, { name: student, image: blob });
+			await cache.add(blob, student);
+		}
+
+		// 画像をトリミング
+		async function trimImage(imageFile, position) {
+			const img = await createImageBitmap(imageFile);
+			const [l, t, r, b] = position;
+			const cropX = Math.floor(img.width * l);
+			const cropY = Math.floor(img.height * t);
+			const cropWidth = Math.floor(img.width * (r - l));
+			const cropHeight = Math.floor(img.height * (b - t));
+			const canvas = document.createElement('canvas');
+			canvas.width = cropWidth; canvas.height = cropHeight;
+			canvas.getContext('2d').drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+			return new Promise(resolve => canvas.toBlob(resolve, imageFile.type));
+		}
+	</script>
+</body>
+
+</html>
