@@ -105,6 +105,7 @@ ST = [
     {name: "トキ（臨戦）", link: "https://lh3.googleusercontent.com/d/1kLFldEY0NVDIhCujs4U6sSgLSaPN0I7Y"},
     {name: "トモエ", link: "https://lh3.googleusercontent.com/d/18WIfFDQfRlBrKzfinExykrdZ9sTWX_yx"},
     {name: "ナグサ", link: "https://lh3.googleusercontent.com/d/13wvpXhIzO5H2Zngsr2xcl6xfGvVHstMr"},
+    {name: "ナグサ（水着）", link: "https://lh3.googleusercontent.com/d/12Hi8-HZ7am2_v0v-7pRN0OoEzQnV2mx2"},
     {name: "ナツ", link: "https://lh3.googleusercontent.com/d/1w0grZesPXGfZlEmhzzXGbeFcETd_uY8h"},
     {name: "ナツ（バンド）", link: "https://lh3.googleusercontent.com/d/1_e-WUdF4lxGH1C-nIbOgtG_bbcEx4SJh"},
     {name: "ニコ", link: "https://lh3.googleusercontent.com/d/17wMQZMMKjF1xUPtDU81i1KjI_dliQDs3"},
