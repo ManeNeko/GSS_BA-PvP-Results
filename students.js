@@ -215,6 +215,7 @@ SP = [
     {name: "エイミ（水着）", link: "https://lh3.googleusercontent.com/d/1tGaBGWmj3j75K2jMBJZNhAV89LeWuowG"},
     {name: "エリカ", link: "https://lh3.googleusercontent.com/d/1pJYBuL_-k0ebC_OJfMwlhP8FaSnCnYcN"},
     {name: "カエデ", link: "https://lh3.googleusercontent.com/d/11wPlzKHXFszj3O6rs9_xg91oXusXXCYx"},
+    {name: "カスミ（水着）", link: "https://lh3.googleusercontent.com/d/16dAyYBpwYQQcaDRU3bOSeMAl3M4_idyq"},
     {name: "カリン", link: "https://lh3.googleusercontent.com/d/1jmL8E-VKfkgg8xwMQEw0quwJKqYGmFDC"},
     {name: "カリン（制服）", link: "https://lh3.googleusercontent.com/d/1z6W78koZWegzoOjPEyjUD-LNc-CzYHjc"},
     {name: "カンナ", link: "https://lh3.googleusercontent.com/d/12fy9EQpkbZ_ccKSOL6LrCqq7WkSKSeCR"},
